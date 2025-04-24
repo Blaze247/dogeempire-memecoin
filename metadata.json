@@ -1,0 +1,12 @@
+{
+  "name": "DogeEmpire",
+  "symbol": "DOGE",
+  "uri": "https://raw.githubusercontent.com/Blaze247/dogeempire-memecoin/main/metadata.json",
+  "description": "DogeEmpire is a fun, community-driven memecoin designed to bring joy to the Solana ecosystem.",
+  "image": "https://raw.githubusercontent.com/Blaze247/dogeempire-memecoin/main/logo.png",
+  "extensions": {
+    "website": "https://dogeempire.com",
+    "twitter": "https://twitter.com/dogeempire",
+    "discord": "https://discord.gg/dogeempire"
+  }
+}
