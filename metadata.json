@@ -1,12 +1,26 @@
 {
   "name": "DogeEmpire",
   "symbol": "DOGE",
-  "uri": "https://raw.githubusercontent.com/Blaze247/dogeempire-memecoin/main/metadata.json",
+  "uri": "https://gateway.pinata.cloud/ipfs/bafkreiglrfaa5bhlcaqkcajkm434j27fzbi3nfyuoc3fazslxdtdoaz3dq",
+  "seller_fee_basis_points": 500,
   "description": "DogeEmpire is a fun, community-driven memecoin designed to bring joy to the Solana ecosystem.",
-  "image": "https://raw.githubusercontent.com/Blaze247/dogeempire-memecoin/main/logo.png",
+  "image": "https://gateway.pinata.cloud/ipfs/bafkreietrnogxe3zbp4csc7ud5htcp5nflsutxj7wwqvsje2cyq555if64",
+  "creators": [
+    {
+      "address": "5ziZ21VsKpnzb7bovqBoebrM6LofXMhCx4Dn92vCK5a5",
+      "share": 100
+    }
+  ],
+  "attributes": [
+    { "trait_type": "Category", "value": "Memecoin" },
+    { "trait_type": "Vibe", "value": "Fun" },
+    { "trait_type": "Chain", "value": "Solana" }
+  ],
   "extensions": {
     "website": "https://dogeempire.com",
     "twitter": "https://twitter.com/dogeempire",
-    "discord": "https://discord.gg/dogeempire"
+    "discord": "https://discord.gg/dogeempire",
+    "telegram": "https://t.me/dogeempire", 
+    "medium": "https://medium.com/@dogeempire"
   }
 }
