@@ -1,0 +1,27 @@
+facebook:
+  login_flow:
+    - domain: www.facebook.com
+      is_landing: true
+    - domain: m.facebook.com
+      is_landing: false
+    - domain: connect.facebook.net
+      is_landing: false
+    - domain: graph.facebook.com
+      is_landing: false
+    - domain: static.xx.fbcdn.net
+      is_landing: false
+
+google_gmail:
+  login_flow:
+    - domain: accounts.google.com
+      is_landing: true
+    - domain: oauth2.googleapis.com
+      is_landing: false
+    - domain: apis.google.com
+      is_landing: false
+    - domain: ssl.gstatic.com
+      is_landing: false
+    - domain: fonts.gstatic.com
+      is_landing: false
+    - domain: clients6.google.com
+      is_landing: false
