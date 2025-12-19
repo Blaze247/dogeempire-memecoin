@@ -197,14 +197,3 @@ jq -n \
 echo "[*] Report saved: $REPORT"
 echo "[*] JSON saved  : $JSON"
 
-Resulting behavior
-	•	Domains appear exactly in first‑seen order.
-	•	Unexpected domains are flagged inline.
-	•	Output is categorical and consistent:
-	1.	Landing
-	2.	Provider
-	3.	ECH status
-	4.	Ordered domains
-	5.	Scores
-	6.	Severity
-	•	JSON preserves the same order for SIEM ingestion.
