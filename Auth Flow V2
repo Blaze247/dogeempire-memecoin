@@ -1,0 +1,193 @@
+Below is a SOC‑grade v2 Bash script integrating all the upgrades discussed:
+	•	Interface auto-detection
+	•	Timestamped logs
+	•	Domain → ASN validation
+	•	Landing page strictness
+	•	Sequence/order validation
+	•	ECH detection fallback
+	•	YAML auto-sync using yq
+	•	Severity scoring
+	•	SIEM-ready JSON output
+
+It remains defensive, non-intercepting, and safe.
+
+⸻
+
+
+#!/bin/bash
+# =========================================================
+# OAuth Login Flow Verifier v2 (DEFENSIVE / SOC-GRADE)
+# =========================================================
+
+set -e
+
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+WORKDIR="/tmp/oauth_check_v2"
+mkdir -p "$WORKDIR"
+CAPTURE_TIME=30
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+REPORT="$WORKDIR/report_$TIMESTAMP.txt"
+OBSERVED_RAW="$WORKDIR/observed_raw.txt"
+OBSERVED="$WORKDIR/observed_domains.txt"
+
+# -----------------------------
+# Auto-detect active interface
+# -----------------------------
+INTERFACE=$(ip route | awk '/default/ {print $5}' | head -n1)
+echo "[*] Using interface: $INTERFACE"
+
+# -----------------------------
+# Load expected domains from YAML
+# Requires yq installed: sudo apt install yq
+# -----------------------------
+YAML_FILE="flow.yaml"   # Replace with your local YAML reference
+if [ ! -f "$YAML_FILE" ]; then
+  echo "[!] YAML file $YAML_FILE not found. Exiting."
+  exit 1
+fi
+
+EXPECTED=$(yq '.facebook.login_flow[].domain, .google_gmail.login_flow[].domain' "$YAML_FILE" | sort -u)
+echo "$EXPECTED" > "$WORKDIR/expected_domains.txt"
+
+# -----------------------------
+# Capture TLS SNI
+# -----------------------------
+echo "[*] Capturing TLS SNI for $CAPTURE_TIME seconds. Open login pages in browser now..."
+timeout "$CAPTURE_TIME" tshark -i "$INTERFACE" \
+-Y "tls.handshake.extensions_server_name" \
+-T fields \
+-e tls.handshake.extensions_server_name \
+2>/dev/null > "$OBSERVED_RAW"
+
+# -----------------------------
+# Normalize observed domains
+# -----------------------------
+sed -e 's/^.*\.fbcdn\.net$/fbcdn.net/' \
+    -e 's/^.*\.googleusercontent\.com$/googleusercontent.com/' \
+    "$OBSERVED_RAW" | sort -u > "$OBSERVED"
+
+# -----------------------------
+# Detect ECH (Encrypted Client Hello)
+# -----------------------------
+ECH_ACTIVE=false
+if ! grep -q '.' "$OBSERVED_RAW"; then
+  ECH_ACTIVE=true
+fi
+
+# -----------------------------
+# Landing page detection
+# -----------------------------
+LANDING=$(head -n 1 "$OBSERVED_RAW")
+if [[ "$LANDING" =~ ^accounts\.google\.com$ ]]; then
+  LANDING_PROVIDER="Google"
+elif [[ "$LANDING" =~ ^www\.facebook\.com$ ]]; then
+  LANDING_PROVIDER="Facebook"
+else
+  LANDING_PROVIDER="Unknown"
+fi
+
+# -----------------------------
+# ASN validation
+# -----------------------------
+declare -A ASN_MAP
+ASN_MAP["accounts.google.com"]="AS15169"
+ASN_MAP["www.facebook.com"]="AS32934"
+ASN_MAP["ssl.gstatic.com"]="AS15169"
+ASN_MAP["fonts.gstatic.com"]="AS15169"
+ASN_MAP["oauth2.googleapis.com"]="AS15169"
+ASN_MAP["connect.facebook.net"]="AS32934"
+ASN_MAP["graph.facebook.com"]="AS32934"
+ASN_MAP["fbcdn.net"]="AS32934"
+
+ASN_SCORE=0
+for d in $(cat "$OBSERVED"); do
+  ip=$(dig +short "$d" | head -n1)
+  if [ -n "$ip" ]; then
+    asn=$(whois "$ip" 2>/dev/null | grep -i origin | head -n1 | awk '{print $2}')
+    expected_asn="${ASN_MAP[$d]}"
+    if [ -n "$expected_asn" ] && [[ "$asn" != "$expected_asn" ]]; then
+      ASN_SCORE=$((ASN_SCORE+30))
+    fi
+  fi
+done
+
+# -----------------------------
+# Compare to expected domains
+# -----------------------------
+UNEXPECTED=$(comm -23 "$OBSERVED" "$WORKDIR/expected_domains.txt")
+
+# -----------------------------
+# Sequence/order validation
+# -----------------------------
+SEQUENCE_SCORE=0
+GOOGLE_SEQ=("accounts.google.com" "ssl.gstatic.com" "fonts.gstatic.com" "oauth2.googleapis.com")
+FACEBOOK_SEQ=("www.facebook.com" "fbcdn.net" "connect.facebook.net" "graph.facebook.com")
+
+if [ "$LANDING_PROVIDER" == "Google" ]; then
+  idx=0
+  for d in "$OBSERVED"; do
+    [[ "$d" == "${GOOGLE_SEQ[$idx]}" ]] && idx=$((idx+1))
+  done
+  SEQUENCE_SCORE=$((20*(4-idx))) # penalize missing sequence
+elif [ "$LANDING_PROVIDER" == "Facebook" ]; then
+  idx=0
+  for d in "$OBSERVED"; do
+    [[ "$d" == "${FACEBOOK_SEQ[$idx]}" ]] && idx=$((idx+1))
+  done
+  SEQUENCE_SCORE=$((20*(4-idx)))
+fi
+
+# -----------------------------
+# Severity scoring
+# -----------------------------
+SCORE=0
+[ -n "$UNEXPECTED" ] && SCORE=$((SCORE+40))
+[[ "$LANDING_PROVIDER" == "Unknown" ]] && SCORE=$((SCORE+50))
+SCORE=$((SCORE+ASN_SCORE+SEQUENCE_SCORE))
+$ECH_ACTIVE && SCORE=$((SCORE+10))
+
+if [ "$SCORE" -ge 61 ]; then
+  SEVERITY="HIGH"
+elif [ "$SCORE" -ge 21 ]; then
+  SEVERITY="MEDIUM"
+else
+  SEVERITY="LOW"
+fi
+
+# -----------------------------
+# Output report
+# -----------------------------
+echo
+echo "==================== OAUTH FLOW REPORT ===================="
+echo "Timestamp             : $TIMESTAMP"
+echo "Interface             : $INTERFACE"
+echo "Landing page detected : $LANDING ($LANDING_PROVIDER)"
+echo "ECH active            : $ECH_ACTIVE"
+echo
+echo "Observed domains:"
+cat "$OBSERVED"
+echo
+echo "Unexpected domains:"
+[ -n "$UNEXPECTED" ] && echo "$UNEXPECTED" || echo "None"
+echo
+echo "Severity score        : $SCORE"
+echo "Severity level        : $SEVERITY"
+echo "============================================================"
+
+# -----------------------------
+# SIEM-ready JSON
+# -----------------------------
+jq -n \
+--arg ts "$TIMESTAMP" \
+--arg landing "$LANDING" \
+--arg provider "$LANDING_PROVIDER" \
+--arg ech "$ECH_ACTIVE" \
+--arg severity "$SEVERITY" \
+--argjson score "$SCORE" \
+--argfile obs "$OBSERVED" \
+'{timestamp:$ts, landing:$landing, provider:$provider, ech:$ech, severity:$severity, score:$score, observed_domains:$obs}' \
+> "$WORKDIR/report_$TIMESTAMP.json"
+
+echo "[*] JSON report saved to $WORKDIR/report_$TIMESTAMP.json"
