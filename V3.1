@@ -1,0 +1,185 @@
+#!/bin/bash
+# =========================================================
+# OAuth Login Flow Verifier v3.1 (DEFENSIVE / SOC-GRADE)
+# Purpose: Detect anomalous OAuth login flow ordering
+# Method: TLS SNI with DNS fallback (ECH-aware)
+# =========================================================
+
+set -euo pipefail
+
+# -----------------------------
+# CONFIG
+# -----------------------------
+CAPTURE_TIME=30
+WORKDIR="/tmp/oauth_flow_v3"
+YAML_FILE="flow.yaml"
+mkdir -p "$WORKDIR"
+
+TS="$(date +%Y%m%d_%H%M%S)"
+OBS_RAW="$WORKDIR/observed_raw_$TS.txt"
+OBS_DOM="$WORKDIR/observed_domains_$TS.txt"
+EXP_DOM="$WORKDIR/expected_domains.txt"
+
+# -----------------------------
+# INTERFACE AUTO-DETECT
+# -----------------------------
+IFACE="$(ip route | awk '/default/ {print $5; exit}')"
+echo "[*] Using interface: $IFACE"
+
+# -----------------------------
+# DEPENDENCIES
+# -----------------------------
+for bin in tshark yq dig whois jq; do
+  command -v "$bin" >/dev/null || { echo "[!] Missing dependency: $bin"; exit 1; }
+done
+
+# -----------------------------
+# LOAD EXPECTED DOMAINS
+# -----------------------------
+[ -f "$YAML_FILE" ] || { echo "[!] $YAML_FILE not found"; exit 1; }
+
+yq '.facebook.login_flow[].domain, .google_gmail.login_flow[].domain' "$YAML_FILE" \
+  | sort -u > "$EXP_DOM"
+
+# -----------------------------
+# CAPTURE TLS SNI
+# -----------------------------
+echo "[*] Capturing TLS SNI for $CAPTURE_TIME seconds. Open a login page now..."
+timeout "$CAPTURE_TIME" tshark -i "$IFACE" \
+  -Y "tls.handshake.extensions_server_name" \
+  -T fields -e tls.handshake.extensions_server_name \
+  2>/dev/null > "$OBS_RAW" || true
+
+# -----------------------------
+# ECH DETECTION + DNS FALLBACK
+# -----------------------------
+ECH_ACTIVE=false
+if ! grep -q '.' "$OBS_RAW"; then
+  echo "[!] No TLS SNI observed (ECH likely). Falling back to DNS..."
+  timeout "$CAPTURE_TIME" tshark -i "$IFACE" \
+    -Y "dns.qry.name" \
+    -T fields -e dns.qry.name \
+    2>/dev/null > "$OBS_RAW" || true
+  ECH_ACTIVE=true
+fi
+
+# -----------------------------
+# NORMALIZE DOMAINS
+# -----------------------------
+sed -E \
+  -e 's/^.*\.fbcdn\.net$/fbcdn.net/' \
+  -e 's/^.*\.gstatic\.com$/gstatic.com/' \
+  -e 's/^.*\.googleusercontent\.com$/googleusercontent.com/' \
+  "$OBS_RAW" | sed '/^$/d' | sort -u > "$OBS_DOM"
+
+# -----------------------------
+# LANDING DETECTION (FIRST SEEN)
+# -----------------------------
+LANDING="$(head -n1 "$OBS_RAW" || true)"
+PROVIDER="Unknown"
+[[ "$LANDING" == "accounts.google.com" ]] && PROVIDER="Google"
+[[ "$LANDING" == "www.facebook.com" ]] && PROVIDER="Facebook"
+
+# -----------------------------
+# ASN VALIDATION
+# -----------------------------
+declare -A ASN_MAP=(
+  ["accounts.google.com"]="AS15169"
+  ["oauth2.googleapis.com"]="AS15169"
+  ["apis.google.com"]="AS15169"
+  ["gstatic.com"]="AS15169"
+  ["clients6.google.com"]="AS15169"
+  ["www.facebook.com"]="AS32934"
+  ["connect.facebook.net"]="AS32934"
+  ["graph.facebook.com"]="AS32934"
+  ["fbcdn.net"]="AS32934"
+)
+
+ASN_SCORE=0
+while read -r d; do
+  ip="$(dig +short "$d" | head -n1 || true)"
+  [ -n "$ip" ] || continue
+  asn="$(whois "$ip" 2>/dev/null | awk '/^origin/ {print $2; exit}')"
+  exp="${ASN_MAP[$d]:-}"
+  if [ -n "$exp" ] && [ -n "$asn" ] && [ "$asn" != "$exp" ]; then
+    ASN_SCORE=$((ASN_SCORE+30))
+  fi
+done < "$OBS_DOM"
+
+# -----------------------------
+# EXPECTED VS OBSERVED
+# -----------------------------
+UNEXPECTED="$(comm -23 "$OBS_DOM" "$EXP_DOM" || true)"
+
+# -----------------------------
+# SEQUENCE CHECK
+# -----------------------------
+SEQ_SCORE=0
+if [ "$PROVIDER" = "Google" ]; then
+  EXPECT=("accounts.google.com" "gstatic.com" "oauth2.googleapis.com")
+elif [ "$PROVIDER" = "Facebook" ]; then
+  EXPECT=("www.facebook.com" "fbcdn.net" "connect.facebook.net" "graph.facebook.com")
+else
+  EXPECT=()
+fi
+
+idx=0
+while read -r d; do
+  [ "${EXPECT[$idx]:-}" = "$d" ] && idx=$((idx+1))
+done < "$OBS_DOM"
+
+[ "${#EXPECT[@]}" -gt 0 ] && SEQ_SCORE=$((20*(${#EXPECT[@]}-idx)))
+
+# -----------------------------
+# SEVERITY SCORING
+# -----------------------------
+SCORE=0
+[ -n "$UNEXPECTED" ] && SCORE=$((SCORE+40))
+[ "$PROVIDER" = "Unknown" ] && SCORE=$((SCORE+50))
+SCORE=$((SCORE+ASN_SCORE+SEQ_SCORE))
+$ECH_ACTIVE && SCORE=$((SCORE+10))
+
+if   [ "$SCORE" -ge 61 ]; then SEV="HIGH"
+elif [ "$SCORE" -ge 21 ]; then SEV="MEDIUM"
+else SEV="LOW"; fi
+
+# -----------------------------
+# REPORT
+# -----------------------------
+echo
+echo "================ OAUTH FLOW REPORT (v3.1) ================"
+echo "Timestamp        : $TS"
+echo "Interface        : $IFACE"
+echo "Landing Domain   : ${LANDING:-None}"
+echo "Provider         : $PROVIDER"
+echo "ECH Active       : $ECH_ACTIVE"
+echo
+echo "Observed Domains:"
+cat "$OBS_DOM" || echo "None"
+echo
+echo "Unexpected Domains:"
+[ -n "$UNEXPECTED" ] && echo "$UNEXPECTED" || echo "None"
+echo
+echo "ASN Score        : $ASN_SCORE"
+echo "Sequence Score   : $SEQ_SCORE"
+echo "Total Score     : $SCORE"
+echo "Severity         : $SEV"
+echo "=========================================================="
+
+# -----------------------------
+# SIEM JSON
+# -----------------------------
+jq -n \
+  --arg ts "$TS" \
+  --arg iface "$IFACE" \
+  --arg landing "${LANDING:-}" \
+  --arg provider "$PROVIDER" \
+  --arg ech "$ECH_ACTIVE" \
+  --arg sev "$SEV" \
+  --argjson score "$SCORE" \
+  --rawfile observed "$OBS_DOM" \
+  '{timestamp:$ts, interface:$iface, landing:$landing, provider:$provider,
+    ech:$ech, severity:$sev, score:$score, observed_domains:($observed|split("\n"))}' \
+  > "$WORKDIR/report_$TS.json"
+
+echo "[*] JSON report saved to $WORKDIR/report_$TS.json"
