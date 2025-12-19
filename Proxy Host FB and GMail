@@ -1,0 +1,44 @@
+facebook:
+  login_flow:
+    - orig_sub: www
+      domain: facebook.com
+      is_landing: true
+
+    - orig_sub: m
+      domain: facebook.com
+      is_landing: false
+
+    - orig_sub: connect
+      domain: facebook.net
+      is_landing: false
+
+    - orig_sub: graph
+      domain: facebook.com
+      is_landing: false
+
+    - orig_sub: static
+      domain: fbcdn.net
+      is_landing: false
+
+
+google_gmail:
+  login_flow:
+    - orig_sub: accounts
+      domain: google.com
+      is_landing: true
+
+    - orig_sub: oauth2
+      domain: googleapis.com
+      is_landing: false
+
+    - orig_sub: ssl
+      domain: gstatic.com
+      is_landing: false
+
+    - orig_sub: fonts
+      domain: gstatic.com
+      is_landing: false
+
+    - orig_sub: clients6
+      domain: google.com
+      is_landing: false
