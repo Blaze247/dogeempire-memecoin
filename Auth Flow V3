@@ -1,0 +1,210 @@
+#!/bin/bash
+# =========================================================
+# OAuth Login Flow Verifier v3 (DEFENSIVE / SOC‑GRADE)
+# Ordered flow preservation + categorical output
+# =========================================================
+
+set -euo pipefail
+
+# -----------------------------
+# CONFIG
+# -----------------------------
+CAPTURE_TIME=30
+WORKDIR="/tmp/oauth_check_v3"
+mkdir -p "$WORKDIR"
+
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+RAW="$WORKDIR/observed_raw_$TIMESTAMP.txt"
+OBS="$WORKDIR/observed_ordered_$TIMESTAMP.txt"
+EXPECTED="$WORKDIR/expected_domains.txt"
+REPORT="$WORKDIR/report_$TIMESTAMP.txt"
+JSON="$WORKDIR/report_$TIMESTAMP.json"
+
+# -----------------------------
+# Auto‑detect interface
+# -----------------------------
+INTERFACE=$(ip route | awk '/default/ {print $5}' | head -n1)
+
+# -----------------------------
+# Expected domains (single source)
+# -----------------------------
+cat << 'EOF' > "$EXPECTED"
+accounts.google.com
+oauth2.googleapis.com
+apis.google.com
+ssl.gstatic.com
+fonts.gstatic.com
+clients6.google.com
+www.facebook.com
+facebook.com
+connect.facebook.net
+graph.facebook.com
+fbcdn.net
+EOF
+
+# -----------------------------
+# Capture TLS SNI
+# -----------------------------
+timeout "$CAPTURE_TIME" tshark -i "$INTERFACE" \
+-Y "tls.handshake.extensions_server_name" \
+-T fields \
+-e tls.handshake.extensions_server_name \
+2>/dev/null > "$RAW"
+
+# -----------------------------
+# Preserve first‑seen order + normalize
+# -----------------------------
+awk 'NF && !seen[$0]++' "$RAW" | \
+sed \
+  -e 's/^.*\.fbcdn\.net$/fbcdn.net/' \
+  -e 's/^.*\.googleusercontent\.com$/googleusercontent.com/' \
+> "$OBS"
+
+# -----------------------------
+# Detect ECH
+# -----------------------------
+ECH_ACTIVE=false
+grep -q "." "$RAW" || ECH_ACTIVE=true
+
+# -----------------------------
+# Landing page
+# -----------------------------
+LANDING=$(head -n 1 "$RAW" || true)
+PROVIDER="Unknown"
+[[ "$LANDING" == "accounts.google.com" ]] && PROVIDER="Google"
+[[ "$LANDING" == "www.facebook.com" ]] && PROVIDER="Facebook"
+
+# -----------------------------
+# ASN expectations
+# -----------------------------
+declare -A ASN_EXPECTED=(
+  ["accounts.google.com"]="AS15169"
+  ["oauth2.googleapis.com"]="AS15169"
+  ["ssl.gstatic.com"]="AS15169"
+  ["fonts.gstatic.com"]="AS15169"
+  ["www.facebook.com"]="AS32934"
+  ["connect.facebook.net"]="AS32934"
+  ["graph.facebook.com"]="AS32934"
+  ["fbcdn.net"]="AS32934"
+)
+
+ASN_SCORE=0
+
+# -----------------------------
+# Sequence models
+# -----------------------------
+GOOGLE_SEQ=(accounts.google.com ssl.gstatic.com fonts.gstatic.com oauth2.googleapis.com)
+FACEBOOK_SEQ=(www.facebook.com fbcdn.net connect.facebook.net graph.facebook.com)
+
+SEQ_SCORE=0
+IDX=0
+
+# -----------------------------
+# Unexpected detection + scoring
+# -----------------------------
+SCORE=0
+UNEXPECTED_FOUND=false
+
+while read -r d; do
+  # unexpected domain
+  if ! grep -qx "$d" "$EXPECTED"; then
+    UNEXPECTED_FOUND=true
+    SCORE=$((SCORE+40))
+  fi
+
+  # ASN validation
+  ip=$(dig +short "$d" | head -n1 || true)
+  if [[ -n "$ip" && -n "${ASN_EXPECTED[$d]:-}" ]]; then
+    asn=$(whois "$ip" 2>/dev/null | awk '/origin/ {print $2; exit}')
+    [[ -n "$asn" && "$asn" != "${ASN_EXPECTED[$d]}" ]] && ASN_SCORE=$((ASN_SCORE+30))
+  fi
+
+  # sequence validation
+  if [[ "$PROVIDER" == "Google" && "$IDX" -lt "${#GOOGLE_SEQ[@]}" && "$d" == "${GOOGLE_SEQ[$IDX]}" ]]; then
+    IDX=$((IDX+1))
+  elif [[ "$PROVIDER" == "Facebook" && "$IDX" -lt "${#FACEBOOK_SEQ[@]}" && "$d" == "${FACEBOOK_SEQ[$IDX]}" ]]; then
+    IDX=$((IDX+1))
+  fi
+done < "$OBS"
+
+[[ "$PROVIDER" == "Google" ]] && SEQ_SCORE=$((20 * (${#GOOGLE_SEQ[@]} - IDX)))
+[[ "$PROVIDER" == "Facebook" ]] && SEQ_SCORE=$((20 * (${#FACEBOOK_SEQ[@]} - IDX)))
+
+# landing mismatch
+[[ "$PROVIDER" == "Unknown" ]] && SCORE=$((SCORE+50))
+
+# ECH penalty
+$ECH_ACTIVE && SCORE=$((SCORE+10))
+
+SCORE=$((SCORE+ASN_SCORE+SEQ_SCORE))
+
+# -----------------------------
+# Severity
+# -----------------------------
+SEVERITY="LOW"
+(( SCORE >= 21 )) && SEVERITY="MEDIUM"
+(( SCORE >= 61 )) && SEVERITY="HIGH"
+
+# -----------------------------
+# Text report (ordered + categorical)
+# -----------------------------
+{
+echo "================ OAUTH FLOW REPORT v3 ================"
+echo "Timestamp        : $TIMESTAMP"
+echo "Interface        : $INTERFACE"
+echo "Landing Domain   : ${LANDING:-NONE}"
+echo "Provider         : $PROVIDER"
+echo "ECH Active       : $ECH_ACTIVE"
+echo
+echo "Observed Domains (first‑seen order):"
+while read -r d; do
+  if grep -qx "$d" "$EXPECTED"; then
+    echo "  $d"
+  else
+    echo "  $d   <-- UNEXPECTED"
+  fi
+done < "$OBS"
+echo
+echo "ASN Score        : $ASN_SCORE"
+echo "Sequence Score   : $SEQ_SCORE"
+echo "Total Score     : $SCORE"
+echo "Severity         : $SEVERITY"
+echo "======================================================"
+} | tee "$REPORT"
+
+# -----------------------------
+# JSON (ordered)
+# -----------------------------
+OBS_JSON=$(jq -R -s 'split("\n")[:-1]' "$OBS")
+jq -n \
+  --arg ts "$TIMESTAMP" \
+  --arg landing "${LANDING:-}" \
+  --arg provider "$PROVIDER" \
+  --arg ech "$ECH_ACTIVE" \
+  --arg severity "$SEVERITY" \
+  --argjson score "$SCORE" \
+  --argjson observed "$OBS_JSON" \
+'{
+  timestamp: $ts,
+  landing: $landing,
+  provider: $provider,
+  ech: ($ech=="true"),
+  severity: $severity,
+  score: $score,
+  observed_domains: $observed
+}' > "$JSON"
+
+echo "[*] Report saved: $REPORT"
+echo "[*] JSON saved  : $JSON"
+
+Resulting behavior
+	•	Domains appear exactly in first‑seen order.
+	•	Unexpected domains are flagged inline.
+	•	Output is categorical and consistent:
+	1.	Landing
+	2.	Provider
+	3.	ECH status
+	4.	Ordered domains
+	5.	Scores
+	6.	Severity
+	•	JSON preserves the same order for SIEM ingestion.
