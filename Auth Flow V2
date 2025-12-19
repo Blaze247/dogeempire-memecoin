@@ -1,19 +1,3 @@
-Below is a SOC‑grade v2 Bash script integrating all the upgrades discussed:
-	•	Interface auto-detection
-	•	Timestamped logs
-	•	Domain → ASN validation
-	•	Landing page strictness
-	•	Sequence/order validation
-	•	ECH detection fallback
-	•	YAML auto-sync using yq
-	•	Severity scoring
-	•	SIEM-ready JSON output
-
-It remains defensive, non-intercepting, and safe.
-
-⸻
-
-
 #!/bin/bash
 # =========================================================
 # OAuth Login Flow Verifier v2 (DEFENSIVE / SOC-GRADE)
