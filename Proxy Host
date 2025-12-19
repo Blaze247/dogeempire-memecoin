@@ -1,0 +1,65 @@
+# =========================================================
+# Legitimate Login Flow Domains (DEFENSIVE / SOC REFERENCE)
+# Purpose: Validate observed network flows
+# Fields:
+#   orig_sub    = observed subdomain
+#   domain      = registrable domain
+#   is_landing  = true ONLY for the initial login page
+# =========================================================
+
+facebook:
+  login_flow:
+    - orig_sub: www
+      domain: facebook.com
+      is_landing: true        # primary login / consent page
+
+    - orig_sub: m
+      domain: facebook.com
+      is_landing: false       # mobile variant, not initial landing
+
+    - orig_sub: connect
+      domain: facebook.net
+      is_landing: false       # JS SDK
+
+    - orig_sub: graph
+      domain: facebook.com
+      is_landing: false       # API after authentication
+
+    - orig_sub: static
+      domain: fbcdn.net
+      is_landing: false       # static assets
+
+# ---------------------------------------------------------
+
+google_gmail:
+  login_flow:
+    - orig_sub: accounts
+      domain: google.com
+      is_landing: true        # primary login / consent page
+
+    - orig_sub: oauth2
+      domain: googleapis.com
+      is_landing: false       # token services
+
+    - orig_sub: apis
+      domain: google.com
+      is_landing: false       # identity-related APIs
+
+    - orig_sub: ssl
+      domain: gstatic.com
+      is_landing: false       # secure static assets
+
+    - orig_sub: fonts
+      domain: gstatic.com
+      is_landing: false       # web fonts
+
+    - orig_sub: clients6
+      domain: google.com
+      is_landing: false       # browser/device services
+
+# =========================================================
+# SOC NOTES
+# - is_landing:true should appear ONCE per login flow
+# - Any alternate domain marked as landing = high risk
+# - Treat substitutions or extra "landing" pages as proxy/MITM
+# =========================================================
