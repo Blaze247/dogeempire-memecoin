@@ -1,17 +1,3 @@
-Below is one single defensive Bash script you can save and run on Kali.
-It observes, compares, scores severity, and accounts for ECH limits.
-It does not intercept, decrypt, or proxy anything.
-
-⸻
-
-1️⃣ The Bash script (copy‑paste exactly)
-
-Save as:
-
-nano oauth_flow_check.sh
-
-Paste:
-
 #!/bin/bash
 # =========================================================
 # OAuth Login Flow Verifier (DEFENSIVE / SOC)
@@ -101,6 +87,3 @@ echo "Severity : $SEVERITY"
 echo "Reason   : $REASON"
 echo "============================================="
 
-Make executable:
-
-chmod +x oauth_flow_check.sh
